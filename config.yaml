@@ -1,0 +1,117 @@
+# 101GenAI Platform Configuration
+# This file drives the entire Terraform deployment
+
+# Cloud Provider Configuration
+provider: "aws"  # Options: "aws" or "gcp"
+region: "ap-south-1"  # AWS: ap-south-1, us-east-1, etc. | GCP: asia-south1, us-central1, etc.
+environment: "production"
+
+# Cluster Configuration
+cluster_name: "101genai-platform-cluster"
+
+# For GCP deployments only
+gcp_project_id: "your-gcp-project-id"  # Required only when provider is "gcp"
+
+# Node Configuration
+nodes:
+  machine_type: "t3a.xlarge"  # AWS: t3a.xlarge, m5.large, etc. | GCP: e2-standard-4, n1-standard-4, etc.
+  node_count: 3
+
+# Services Configuration
+services:
+  # Database Services
+  mongodb:
+    replicas: 3
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+    storage:
+      size: "20Gi"
+      access_modes: ["ReadWriteOnce"]
+
+  postgres:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+    storage:
+      size: "10Gi"
+      access_modes: ["ReadWriteOnce"]
+
+  redis:
+    replicas: 2  # 1 master + 1 replica
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "200m"
+        memory: "512Mi"
+    storage:
+      size: "5Gi"
+      access_modes: ["ReadWriteOnce"]
+
+  # Vector Database
+  weaviate:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+    storage:
+      size: "32Gi"
+      access_modes: ["ReadWriteOnce"]
+
+  # Authentication Service
+  keycloak:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+
+  # Application Services
+  backend:
+    replicas: 2
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+
+  frontend:
+    replicas: 2
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "200m"
+        memory: "512Mi"
+
+  # Worker Services
+  celery:
+    replicas: 2
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"

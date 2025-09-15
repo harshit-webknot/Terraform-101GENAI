@@ -1,0 +1,106 @@
+# GCP Deployment Example Configuration
+# Copy this file to config.yaml and customize for your GCP deployment
+
+provider: "gcp"
+region: "asia-south1"  # Mumbai region equivalent in GCP
+environment: "production"
+gcp_project_id: "your-gcp-project-id"  # Replace with your actual GCP project ID
+
+cluster_name: "101genai-platform-cluster-gcp"
+
+nodes:
+  machine_type: "e2-standard-4"  # GCP equivalent of t3a.xlarge (4 vCPUs, 16GB RAM)
+  node_count: 3
+
+services:
+  mongodb:
+    replicas: 3
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+    storage:
+      size: "20Gi"
+      access_modes: ["ReadWriteMany"]  # Filestore supports RWX
+
+  postgres:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+    storage:
+      size: "10Gi"
+      access_modes: ["ReadWriteMany"]
+
+  redis:
+    replicas: 2
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "200m"
+        memory: "512Mi"
+    storage:
+      size: "5Gi"
+      access_modes: ["ReadWriteMany"]
+
+  weaviate:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+    storage:
+      size: "32Gi"
+      access_modes: ["ReadWriteMany"]
+
+  keycloak:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+
+  backend:
+    replicas: 2
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+
+  frontend:
+    replicas: 2
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "200m"
+        memory: "512Mi"
+
+  celery:
+    replicas: 2
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"

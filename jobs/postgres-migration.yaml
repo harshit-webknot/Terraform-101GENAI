@@ -1,0 +1,70 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-migration
+  namespace: default
+  labels:
+    app: postgres-migration
+    component: database
+spec:
+  template:
+    metadata:
+      labels:
+        app: postgres-migration
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: postgres-migration
+        image: postgres:15-alpine
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "Starting PostgreSQL migration..."
+          
+          # Wait for PostgreSQL to be ready
+          until pg_isready -h postgresql -p 5432 -U keycloak; do
+            echo "Waiting for PostgreSQL to be ready..."
+            sleep 2
+          done
+          
+          echo "PostgreSQL is ready. Running migrations..."
+          
+          # Create additional databases if needed
+          PGPASSWORD=keycloak-password psql -h postgresql -U keycloak -d keycloak -c "
+            -- Create additional schemas or tables if needed
+            CREATE SCHEMA IF NOT EXISTS app_data;
+            
+            -- Create a sample table for application data
+            CREATE TABLE IF NOT EXISTS app_data.user_profiles (
+              id SERIAL PRIMARY KEY,
+              user_id VARCHAR(255) UNIQUE NOT NULL,
+              profile_data JSONB,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            
+            -- Create indexes
+            CREATE INDEX IF NOT EXISTS idx_user_profiles_user_id ON app_data.user_profiles(user_id);
+            CREATE INDEX IF NOT EXISTS idx_user_profiles_created_at ON app_data.user_profiles(created_at);
+            
+            -- Grant permissions
+            GRANT USAGE ON SCHEMA app_data TO keycloak;
+            GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA app_data TO keycloak;
+            GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA app_data TO keycloak;
+          "
+          
+          echo "PostgreSQL migration completed successfully!"
+        env:
+        - name: PGPASSWORD
+          value: "keycloak-password"
+        - name: PGUSER
+          value: "keycloak"
+        - name: PGHOST
+          value: "postgresql"
+        - name: PGPORT
+          value: "5432"
+        - name: PGDATABASE
+          value: "keycloak"
+      backoffLimit: 3

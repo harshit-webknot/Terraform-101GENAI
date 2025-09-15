@@ -1,0 +1,134 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: weaviate-schema-setup
+  namespace: default
+  labels:
+    app: weaviate-schema-setup
+    component: vector-database
+spec:
+  template:
+    metadata:
+      labels:
+        app: weaviate-schema-setup
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: weaviate-schema-setup
+        image: curlimages/curl:8.4.0
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          echo "Starting Weaviate schema setup..."
+          
+          # Wait for Weaviate to be ready
+          until curl -f http://weaviate:80/v1/.well-known/ready > /dev/null 2>&1; do
+            echo "Waiting for Weaviate to be ready..."
+            sleep 5
+          done
+          
+          echo "Weaviate is ready. Setting up schema..."
+          
+          # Create Document class schema
+          curl -X POST \
+            http://weaviate:80/v1/schema \
+            -H "Content-Type: application/json" \
+            -d '{
+              "class": "Document",
+              "description": "A document with text content and metadata",
+              "vectorizer": "text2vec-openai",
+              "moduleConfig": {
+                "text2vec-openai": {
+                  "model": "ada",
+                  "modelVersion": "002",
+                  "type": "text"
+                }
+              },
+              "properties": [
+                {
+                  "name": "title",
+                  "dataType": ["text"],
+                  "description": "Title of the document"
+                },
+                {
+                  "name": "content",
+                  "dataType": ["text"],
+                  "description": "Main content of the document"
+                },
+                {
+                  "name": "userId",
+                  "dataType": ["text"],
+                  "description": "ID of the user who owns this document"
+                },
+                {
+                  "name": "documentType",
+                  "dataType": ["text"],
+                  "description": "Type of document (pdf, txt, etc.)"
+                },
+                {
+                  "name": "metadata",
+                  "dataType": ["object"],
+                  "description": "Additional metadata about the document"
+                },
+                {
+                  "name": "createdAt",
+                  "dataType": ["date"],
+                  "description": "When the document was created"
+                }
+              ]
+            }'
+          
+          # Create Conversation class schema
+          curl -X POST \
+            http://weaviate:80/v1/schema \
+            -H "Content-Type: application/json" \
+            -d '{
+              "class": "Conversation",
+              "description": "A conversation between user and AI",
+              "vectorizer": "text2vec-openai",
+              "moduleConfig": {
+                "text2vec-openai": {
+                  "model": "ada",
+                  "modelVersion": "002",
+                  "type": "text"
+                }
+              },
+              "properties": [
+                {
+                  "name": "userId",
+                  "dataType": ["text"],
+                  "description": "ID of the user in this conversation"
+                },
+                {
+                  "name": "messages",
+                  "dataType": ["text"],
+                  "description": "Conversation messages as JSON string"
+                },
+                {
+                  "name": "summary",
+                  "dataType": ["text"],
+                  "description": "Summary of the conversation"
+                },
+                {
+                  "name": "tags",
+                  "dataType": ["text[]"],
+                  "description": "Tags associated with the conversation"
+                },
+                {
+                  "name": "createdAt",
+                  "dataType": ["date"],
+                  "description": "When the conversation was created"
+                }
+              ]
+            }'
+          
+          echo "Weaviate schema setup completed successfully!"
+          
+          # Verify schema creation
+          echo "Verifying schema..."
+          curl -X GET http://weaviate:80/v1/schema
+          
+          echo "Schema verification completed!"
+      backoffLimit: 3

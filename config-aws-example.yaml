@@ -1,0 +1,105 @@
+# AWS Deployment Example Configuration
+# Copy this file to config.yaml and customize for your AWS deployment
+
+provider: "aws"
+region: "ap-south-1"  # Mumbai region as per the original setup guide
+environment: "production"
+
+cluster_name: "101GenAI-Public-Beta-Cluster-Webknot"
+
+nodes:
+  machine_type: "t3a.xlarge"  # As recommended in the original guide
+  node_count: 3
+
+services:
+  mongodb:
+    replicas: 3  # Recommended: equal to number of nodes
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+    storage:
+      size: "20Gi"
+      access_modes: ["ReadWriteMany"]  # EFS supports RWX
+
+  postgres:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+    storage:
+      size: "10Gi"
+      access_modes: ["ReadWriteMany"]
+
+  redis:
+    replicas: 2
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "200m"
+        memory: "512Mi"
+    storage:
+      size: "5Gi"
+      access_modes: ["ReadWriteMany"]
+
+  weaviate:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+    storage:
+      size: "32Gi"
+      access_modes: ["ReadWriteMany"]
+
+  keycloak:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+
+  backend:
+    replicas: 2
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+
+  frontend:
+    replicas: 2
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "200m"
+        memory: "512Mi"
+
+  celery:
+    replicas: 2
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"

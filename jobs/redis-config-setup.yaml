@@ -1,0 +1,76 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: redis-config-setup
+  namespace: default
+  labels:
+    app: redis-config-setup
+    component: cache
+spec:
+  template:
+    metadata:
+      labels:
+        app: redis-config-setup
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: redis-config-setup
+        image: redis:7.2-alpine
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          echo "Starting Redis configuration setup..."
+          
+          # Wait for Redis to be ready
+          until redis-cli -h redis-master -p 6379 -a redis-password ping > /dev/null 2>&1; do
+            echo "Waiting for Redis to be ready..."
+            sleep 2
+          done
+          
+          echo "Redis is ready. Configuring..."
+          
+          # Set up Redis configuration
+          redis-cli -h redis-master -p 6379 -a redis-password <<EOF
+          # Configure memory policy
+          CONFIG SET maxmemory-policy allkeys-lru
+          
+          # Set up key expiration policies
+          CONFIG SET notify-keyspace-events Ex
+          
+          # Configure persistence
+          CONFIG SET save "900 1 300 10 60 10000"
+          
+          # Set up some initial cache keys for the application
+          SET app:version "1.0.0"
+          SET app:maintenance "false"
+          
+          # Create hash for application settings
+          HSET app:settings max_upload_size "100MB"
+          HSET app:settings session_timeout "3600"
+          HSET app:settings rate_limit "1000"
+          
+          # Set up rate limiting keys structure
+          SET rate_limit:template "0"
+          EXPIRE rate_limit:template 1
+          
+          # Create sets for user sessions management
+          SADD active_sessions:template "placeholder"
+          DEL active_sessions:template
+          
+          PING
+          EOF
+          
+          echo "Redis configuration completed successfully!"
+          
+          # Verify configuration
+          echo "Verifying Redis configuration..."
+          redis-cli -h redis-master -p 6379 -a redis-password INFO memory
+          redis-cli -h redis-master -p 6379 -a redis-password CONFIG GET maxmemory-policy
+          
+          echo "Redis configuration verification completed!"
+        env:
+        - name: REDISCLI_AUTH
+          value: "redis-password"
+      backoffLimit: 3

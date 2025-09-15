@@ -1,0 +1,89 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mongo-replica-sync
+  namespace: default
+  labels:
+    app: mongo-replica-sync
+    component: database
+spec:
+  template:
+    metadata:
+      labels:
+        app: mongo-replica-sync
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: mongo-replica-sync
+        image: mongo:7.0
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "Starting MongoDB replica set configuration..."
+          
+          # Wait for MongoDB primary to be ready
+          until mongosh --host mongodb-0.mongodb-headless --username admin --password mongodb-root-password --authenticationDatabase admin --eval "db.adminCommand('ping')" > /dev/null 2>&1; do
+            echo "Waiting for MongoDB primary to be ready..."
+            sleep 5
+          done
+          
+          echo "MongoDB primary is ready. Configuring replica set..."
+          
+          # Initialize replica set if not already done
+          mongosh --host mongodb-0.mongodb-headless --username admin --password mongodb-root-password --authenticationDatabase admin --eval "
+            try {
+              var config = rs.conf();
+              print('Replica set already configured');
+            } catch (e) {
+              print('Initializing replica set...');
+              rs.initiate({
+                _id: 'rs0',
+                members: [
+                  { _id: 0, host: 'mongodb-0.mongodb-headless:27017', priority: 1 },
+                  { _id: 1, host: 'mongodb-1.mongodb-headless:27017', priority: 0.5 },
+                  { _id: 2, host: 'mongodb-2.mongodb-headless:27017', priority: 0.5 }
+                ]
+              });
+              
+              // Wait for replica set to be ready
+              while (rs.status().ok !== 1) {
+                print('Waiting for replica set to be ready...');
+                sleep(2000);
+              }
+              
+              print('Replica set initialized successfully');
+            }
+          "
+          
+          # Create application database and user
+          mongosh --host mongodb-0.mongodb-headless --username admin --password mongodb-root-password --authenticationDatabase admin --eval "
+            use 101genai;
+            
+            // Create collections with proper indexes
+            db.createCollection('users');
+            db.createCollection('conversations');
+            db.createCollection('documents');
+            db.createCollection('embeddings');
+            
+            // Create indexes for better performance
+            db.users.createIndex({ 'email': 1 }, { unique: true });
+            db.users.createIndex({ 'created_at': 1 });
+            
+            db.conversations.createIndex({ 'user_id': 1 });
+            db.conversations.createIndex({ 'created_at': 1 });
+            db.conversations.createIndex({ 'user_id': 1, 'created_at': -1 });
+            
+            db.documents.createIndex({ 'user_id': 1 });
+            db.documents.createIndex({ 'document_type': 1 });
+            db.documents.createIndex({ 'created_at': 1 });
+            
+            db.embeddings.createIndex({ 'document_id': 1 });
+            db.embeddings.createIndex({ 'vector_id': 1 });
+            
+            print('Database and collections created successfully');
+          "
+          
+          echo "MongoDB replica set configuration completed successfully!"
+      backoffLimit: 3
