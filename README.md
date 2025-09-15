@@ -18,35 +18,35 @@ The platform deploys the following components:
 
 ## 📁 Project Structure
 
-\`\`\`
-terraform-iac/
-├── config.yaml                 # Main configuration file
-├── main.tf                     # Root Terraform configuration
-├── variables.tf                # Input variables
-├── outputs.tf                  # Output values
-├── modules/
-│   ├── aws/                    # AWS-specific infrastructure
-│   │   ├── main.tf
-│   │   ├── variables.tf
-│   │   └── outputs.tf
-│   ├── gcp/                    # GCP-specific infrastructure
-│   │   ├── main.tf
-│   │   ├── variables.tf
-│   │   └── outputs.tf
-│   └── workloads/              # Kubernetes workloads
-│       ├── main.tf
-│       ├── variables.tf
-│       └── outputs.tf
-├── jobs/                       # Kubernetes Jobs for initialization
-│   ├── postgres-migration.yaml
-│   ├── mongo-replica-sync.yaml
-│   ├── weaviate-schema-setup.yaml
-│   ├── redis-config-setup.yaml
-│   └── init-secrets.yaml
-├── config-aws-example.yaml     # AWS deployment example
-├── config-gcp-example.yaml     # GCP deployment example
-└── README.md
-\`\`\`
+\*
+terraform-iac/ <br>
+├── config.yaml                 # Main configuration file<br>
+├── main.tf                     # Root Terraform configuration<br>
+├── variables.tf                # Input variables<br>
+├── outputs.tf                  # Output values<br>
+├── modules/<br>
+│   ├── aws/                    # AWS-specific infrastructure<br>
+│   │   ├── main.tf<br>
+│   │   ├── variables.tf<br>
+│   │   └── outputs.tf<br>
+│   ├── gcp/                    # GCP-specific infrastructure<br>
+│   │   ├── main.tf<br>
+│   │   ├── variables.tf<br>
+│   │   └── outputs.tf<br>
+│   └── workloads/              # Kubernetes workloads<br>
+│       ├── main.tf<br>
+│       ├── variables.tf<br>
+│       └── outputs.tf<br>
+├── jobs/                       # Kubernetes Jobs for initialization<br>
+│   ├── postgres-migration.yaml<br>
+│   ├── mongo-replica-sync.yaml<br>
+│   ├── weaviate-schema-setup.yaml<br>
+│   ├── redis-config-setup.yaml<br>
+│   └── init-secrets.yaml<br>
+├── config-aws-example.yaml     # AWS deployment example<br>
+├── config-gcp-example.yaml     # GCP deployment example<br>
+└── README.md<br>
+*/
 
 ## 🚀 Quick Start
 
