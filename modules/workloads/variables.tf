@@ -36,7 +36,7 @@ variable "cluster_name" {
   type        = string
 }
 
-variable "provider" {
+variable "cloud_provider" {
   description = "Cloud provider (aws or gcp)"
   type        = string
 }
