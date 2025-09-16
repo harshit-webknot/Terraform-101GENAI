@@ -28,9 +28,9 @@ locals {
   config = yamldecode(file("config.yaml"))
   
   # Common variables
-  cluster_name = local.config.cluster_name
-  region      = local.config.region
-  provider    = local.config.provider
+  cluster_name   = local.config.cluster_name
+  region         = local.config.region
+  cloud_provider = local.config.provider   # ✅ renamed
   
   # Node configuration
   nodes = local.config.nodes
@@ -49,68 +49,66 @@ locals {
   }
 }
 
-# Conditional provider configuration
+# AWS provider (always declared, selected only via module count)
 provider "aws" {
-  count  = local.provider == "aws" ? 1 : 0
   region = local.region
-  
   default_tags {
     tags = local.common_tags
   }
 }
 
+# GCP provider (always declared, selected only via module count)
 provider "google" {
-  count   = local.provider == "gcp" ? 1 : 0
   project = local.config.gcp_project_id
   region  = local.region
 }
 
 # AWS Infrastructure
 module "aws_infrastructure" {
-  count  = local.provider == "aws" ? 1 : 0
+  count  = local.cloud_provider == "aws" ? 1 : 0
   source = "./modules/aws"
   
-  cluster_name    = local.cluster_name
-  region         = local.region
-  node_count     = local.nodes.node_count
-  machine_type   = local.nodes.machine_type
-  services       = local.services
-  common_tags    = local.common_tags
+  cluster_name  = local.cluster_name
+  region        = local.region
+  node_count    = local.nodes.node_count
+  machine_type  = local.nodes.machine_type
+  services      = local.services
+  common_tags   = local.common_tags
 }
 
 # GCP Infrastructure
 module "gcp_infrastructure" {
-  count  = local.provider == "gcp" ? 1 : 0
+  count  = local.cloud_provider == "gcp" ? 1 : 0
   source = "./modules/gcp"
   
-  cluster_name    = local.cluster_name
-  region         = local.region
-  project_id     = local.config.gcp_project_id
-  node_count     = local.nodes.node_count
-  machine_type   = local.nodes.machine_type
-  services       = local.services
-  common_tags    = local.common_tags
+  cluster_name  = local.cluster_name
+  region        = local.region
+  project_id    = local.config.gcp_project_id
+  node_count    = local.nodes.node_count
+  machine_type  = local.nodes.machine_type
+  services      = local.services
+  common_tags   = local.common_tags
 }
 
-# Kubernetes provider configuration
+# Kubernetes provider config
 provider "kubernetes" {
-  host                   = local.provider == "aws" ? module.aws_infrastructure[0].cluster_endpoint : module.gcp_infrastructure[0].cluster_endpoint
-  cluster_ca_certificate = base64decode(local.provider == "aws" ? module.aws_infrastructure[0].cluster_ca_certificate : module.gcp_infrastructure[0].cluster_ca_certificate)
-  token                  = local.provider == "aws" ? module.aws_infrastructure[0].cluster_token : module.gcp_infrastructure[0].cluster_token
+  host                   = local.cloud_provider == "aws" ? module.aws_infrastructure[0].cluster_endpoint : module.gcp_infrastructure[0].cluster_endpoint
+  cluster_ca_certificate = base64decode(local.cloud_provider == "aws" ? module.aws_infrastructure[0].cluster_ca_certificate : module.gcp_infrastructure[0].cluster_ca_certificate)
+  token                  = local.cloud_provider == "aws" ? module.aws_infrastructure[0].cluster_token : module.gcp_infrastructure[0].cluster_token
 }
 
 provider "helm" {
   kubernetes {
-    host                   = local.provider == "aws" ? module.aws_infrastructure[0].cluster_endpoint : module.gcp_infrastructure[0].cluster_endpoint
-    cluster_ca_certificate = base64decode(local.provider == "aws" ? module.aws_infrastructure[0].cluster_ca_certificate : module.gcp_infrastructure[0].cluster_ca_certificate)
-    token                  = local.provider == "aws" ? module.aws_infrastructure[0].cluster_token : module.gcp_infrastructure[0].cluster_token
+    host                   = local.cloud_provider == "aws" ? module.aws_infrastructure[0].cluster_endpoint : module.gcp_infrastructure[0].cluster_endpoint
+    cluster_ca_certificate = base64decode(local.cloud_provider == "aws" ? module.aws_infrastructure[0].cluster_ca_certificate : module.gcp_infrastructure[0].cluster_ca_certificate)
+    token                  = local.cloud_provider == "aws" ? module.aws_infrastructure[0].cluster_token : module.gcp_infrastructure[0].cluster_token
   }
 }
 
 provider "kubectl" {
-  host                   = local.provider == "aws" ? module.aws_infrastructure[0].cluster_endpoint : module.gcp_infrastructure[0].cluster_endpoint
-  cluster_ca_certificate = base64decode(local.provider == "aws" ? module.aws_infrastructure[0].cluster_ca_certificate : module.gcp_infrastructure[0].cluster_ca_certificate)
-  token                  = local.provider == "aws" ? module.aws_infrastructure[0].cluster_token : module.gcp_infrastructure[0].cluster_token
+  host                   = local.cloud_provider == "aws" ? module.aws_infrastructure[0].cluster_endpoint : module.gcp_infrastructure[0].cluster_endpoint
+  cluster_ca_certificate = base64decode(local.cloud_provider == "aws" ? module.aws_infrastructure[0].cluster_ca_certificate : module.gcp_infrastructure[0].cluster_ca_certificate)
+  token                  = local.cloud_provider == "aws" ? module.aws_infrastructure[0].cluster_token : module.gcp_infrastructure[0].cluster_token
   load_config_file       = false
 }
 
@@ -118,13 +116,13 @@ provider "kubectl" {
 module "workloads" {
   source = "./modules/workloads"
   
-  services     = local.services
-  domains      = local.domains
-  cluster_name = local.cluster_name
-  provider     = local.provider
+  services      = local.services
+  domains       = local.domains
+  cluster_name  = local.cluster_name
+  cloud_provider = local.cloud_provider   # ✅ fixed
   
-  # Storage configuration - using emptyDir volumes instead of PVC
-  storage_class = local.provider == "aws" ? "efs-sc" : "filestore-sc"
+  # Storage configuration
+  storage_class = local.cloud_provider == "aws" ? "efs-sc" : "filestore-sc"
   
   depends_on = [
     module.aws_infrastructure,
