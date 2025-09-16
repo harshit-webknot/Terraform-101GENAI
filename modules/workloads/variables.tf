@@ -1,5 +1,5 @@
 variable "services" {
-  description = "Services configuration"
+  description = "Services configuration with credentials and environment variables"
   type = map(object({
     replicas = number
     resources = object({
@@ -12,11 +12,23 @@ variable "services" {
         memory = string
       })
     })
-    storage = optional(object({
-      size         = string
-      access_modes = list(string)
+    credentials = optional(object({
+      username = string
+      password = string
+      database = optional(string)
     }))
+    env = optional(map(string), {})
   }))
+}
+
+variable "domains" {
+  description = "Domain mapping for services"
+  type = object({
+    frontend = string
+    backend  = string
+    keycloak = string
+    weaviate = string
+  })
 }
 
 variable "cluster_name" {
@@ -32,4 +44,5 @@ variable "provider" {
 variable "storage_class" {
   description = "Storage class to use for persistent volumes"
   type        = string
+  default     = "standard"
 }

@@ -6,6 +6,13 @@ provider: "aws"  # Options: "aws" or "gcp"
 region: "ap-south-1"  # AWS: ap-south-1, us-east-1, etc. | GCP: asia-south1, us-central1, etc.
 environment: "production"
 
+# Domain Mapping
+domains:
+  frontend: "https://app.101genai.com"
+  backend: "https://api.101genai.com"
+  keycloak: "https://auth.101genai.com"
+  weaviate: "https://vector.101genai.com"
+
 # Cluster Configuration
 cluster_name: "101genai-platform-cluster"
 
@@ -32,6 +39,14 @@ services:
     storage:
       size: "20Gi"
       access_modes: ["ReadWriteOnce"]
+    credentials:
+      username: "mongouser"
+      password: "mongopass123"
+      database: "101genai"
+    env:
+      MONGO_INITDB_ROOT_USERNAME: "mongouser"
+      MONGO_INITDB_ROOT_PASSWORD: "mongopass123"
+      MONGO_INITDB_DATABASE: "101genai"
 
   postgres:
     replicas: 1
@@ -45,6 +60,15 @@ services:
     storage:
       size: "10Gi"
       access_modes: ["ReadWriteOnce"]
+    credentials:
+      username: "keycloakuser"
+      password: "keycloakpass123"
+      database: "keycloak"
+    env:
+      POSTGRES_USER: "keycloakuser"
+      POSTGRES_PASSWORD: "keycloakpass123"
+      POSTGRES_DB: "keycloak"
+      PGDATA: "/var/lib/postgresql/data/pgdata"
 
   redis:
     replicas: 2  # 1 master + 1 replica
@@ -58,6 +82,11 @@ services:
     storage:
       size: "5Gi"
       access_modes: ["ReadWriteOnce"]
+    env:
+      REDIS_PASSWORD: "redispass123"
+      REDIS_MAXMEMORY: "200mb"
+      REDIS_MAXMEMORY_POLICY: "allkeys-lru"
+      REDIS_APPENDONLY: "yes"
 
   # Vector Database
   weaviate:
@@ -72,6 +101,13 @@ services:
     storage:
       size: "32Gi"
       access_modes: ["ReadWriteOnce"]
+    env:
+      QUERY_DEFAULTS_LIMIT: "25"
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "false"
+      PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+      DEFAULT_VECTORIZER_MODULE: "none"
+      ENABLE_MODULES: "text2vec-openai,text2vec-cohere,text2vec-huggingface,ref2vec-centroid,generative-openai,qna-openai"
+      CLUSTER_HOSTNAME: "node1"
 
   # Authentication Service
   keycloak:
@@ -83,6 +119,19 @@ services:
       limits:
         cpu: "500m"
         memory: "1Gi"
+    credentials:
+      admin_username: "admin"
+      admin_password: "admin123"
+    env:
+      KEYCLOAK_ADMIN: "admin"
+      KEYCLOAK_ADMIN_PASSWORD: "admin123"
+      KC_DB: "postgres"
+      KC_DB_URL: "jdbc:postgresql://postgres:5432/keycloak"
+      KC_DB_USERNAME: "keycloakuser"
+      KC_DB_PASSWORD: "keycloakpass123"
+      KC_HOSTNAME: "auth.101genai.com"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY: "edge"
 
   # Application Services
   backend:
@@ -94,6 +143,38 @@ services:
       limits:
         cpu: "1000m"
         memory: "2Gi"
+    env:
+      # Database Configuration
+      MONGODB_URL: "mongodb://mongouser:mongopass123@mongodb:27017/101genai"
+      POSTGRES_URL: "postgresql://keycloakuser:keycloakpass123@postgres:5432/keycloak"
+      REDIS_URL: "redis://:redispass123@redis:6379"
+      
+      # External Services
+      WEAVIATE_URL: "https://vector.101genai.com"
+      KEYCLOAK_URL: "https://auth.101genai.com"
+      FRONTEND_URL: "https://app.101genai.com"
+      BACKEND_URL: "https://api.101genai.com"
+      
+      # Application Settings
+      DEBUG: "false"
+      SECRET_KEY: "your-secret-key-here"
+      ALLOWED_HOSTS: "api.101genai.com,localhost"
+      CORS_ALLOWED_ORIGINS: "https://app.101genai.com"
+      
+      # Celery Configuration
+      CELERY_BROKER_URL: "redis://:redispass123@redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://:redispass123@redis:6379/0"
+      
+      # AI/ML Configuration
+      OPENAI_API_KEY: "your-openai-api-key"
+      HUGGINGFACE_API_KEY: "your-huggingface-api-key"
+      
+      # Email Configuration
+      EMAIL_HOST: "smtp.gmail.com"
+      EMAIL_PORT: "587"
+      EMAIL_USE_TLS: "true"
+      EMAIL_HOST_USER: "your-email@gmail.com"
+      EMAIL_HOST_PASSWORD: "your-email-password"
 
   frontend:
     replicas: 2
@@ -104,6 +185,24 @@ services:
       limits:
         cpu: "200m"
         memory: "512Mi"
+    env:
+      # API Configuration
+      NEXT_PUBLIC_API_URL: "https://api.101genai.com"
+      NEXT_PUBLIC_FRONTEND_URL: "https://app.101genai.com"
+      
+      # Authentication
+      NEXT_PUBLIC_KEYCLOAK_URL: "https://auth.101genai.com"
+      NEXT_PUBLIC_KEYCLOAK_REALM: "101genai"
+      NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: "101genai-frontend"
+      
+      # Application Settings
+      NODE_ENV: "production"
+      NEXT_PUBLIC_APP_NAME: "101GenAI Platform"
+      NEXT_PUBLIC_APP_VERSION: "1.0.0"
+      
+      # Analytics & Monitoring
+      NEXT_PUBLIC_GA_TRACKING_ID: "your-ga-tracking-id"
+      NEXT_PUBLIC_SENTRY_DSN: "your-sentry-dsn"
 
   # Worker Services
   celery:
@@ -115,3 +214,24 @@ services:
       limits:
         cpu: "500m"
         memory: "1Gi"
+    env:
+      # Database Configuration
+      MONGODB_URL: "mongodb://mongouser:mongopass123@mongodb:27017/101genai"
+      REDIS_URL: "redis://:redispass123@redis:6379"
+      
+      # Celery Configuration
+      CELERY_BROKER_URL: "redis://:redispass123@redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://:redispass123@redis:6379/0"
+      CELERY_WORKER_CONCURRENCY: "4"
+      CELERY_WORKER_PREFETCH_MULTIPLIER: "1"
+      
+      # External Services
+      WEAVIATE_URL: "https://vector.101genai.com"
+      
+      # AI/ML Configuration
+      OPENAI_API_KEY: "your-openai-api-key"
+      HUGGINGFACE_API_KEY: "your-huggingface-api-key"
+      
+      # Application Settings
+      DEBUG: "false"
+      LOG_LEVEL: "INFO"

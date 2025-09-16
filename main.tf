@@ -38,6 +38,9 @@ locals {
   # Services configuration
   services = local.config.services
   
+  # Domains configuration
+  domains = local.config.domains
+  
   # Tags
   common_tags = {
     Project     = "101GenAI"
@@ -116,10 +119,11 @@ module "workloads" {
   source = "./modules/workloads"
   
   services     = local.services
+  domains      = local.domains
   cluster_name = local.cluster_name
   provider     = local.provider
   
-  # Storage configuration
+  # Storage configuration - using emptyDir volumes instead of PVC
   storage_class = local.provider == "aws" ? "efs-sc" : "filestore-sc"
   
   depends_on = [

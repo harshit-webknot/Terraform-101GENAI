@@ -1,179 +1,577 @@
-# MongoDB Helm Release
-resource "helm_release" "mongodb" {
+# MongoDB Secret
+resource "kubectl_manifest" "mongodb_secret" {
   count = contains(keys(var.services), "mongodb") ? 1 : 0
 
-  name       = "mongodb"
-  repository = "https://charts.bitnami.com/bitnami"
-  chart      = "mongodb"
-  version    = "13.18.5"
-  namespace  = "default"
-
-  values = [
-    yamlencode({
-      auth = {
-        enabled = true
-        rootUser = "admin"
-        rootPassword = "mongodb-root-password"
-        usernames = ["appuser"]
-        passwords = ["mongodb-app-password"]
-        databases = ["101genai"]
-      }
-      
-      replicaSet = {
-        enabled = true
-        replicas = {
-          secondary = var.services.mongodb.replicas - 1
-          arbiter = 0
-        }
-      }
-      
-      persistence = {
-        enabled = true
-        storageClass = var.storage_class
-        size = try(var.services.mongodb.storage.size, "20Gi")
-        accessModes = try(var.services.mongodb.storage.access_modes, ["ReadWriteOnce"])
-      }
-      
-      resources = var.services.mongodb.resources
-      
-      service = {
-        type = "ClusterIP"
-        ports = {
-          mongodb = 27017
-        }
-      }
-    })
-  ]
+  yaml_body = yamlencode({
+    apiVersion = "v1"
+    kind = "Secret"
+    metadata = {
+      name = "mongodb-secret"
+      namespace = "default"
+    }
+    type = "Opaque"
+    data = {
+      username = base64encode(var.services.mongodb.credentials.username)
+      password = base64encode(var.services.mongodb.credentials.password)
+    }
+  })
 }
 
-# PostgreSQL Helm Release (for Keycloak)
-resource "helm_release" "postgresql" {
+# MongoDB StatefulSet
+resource "kubectl_manifest" "mongodb_statefulset" {
+  count = contains(keys(var.services), "mongodb") ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "apps/v1"
+    kind = "StatefulSet"
+    metadata = {
+      name = "mongodb"
+      namespace = "default"
+      labels = {
+        app = "mongodb"
+      }
+    }
+    spec = {
+      serviceName = "mongodb-headless"
+      replicas = var.services.mongodb.replicas
+      selector = {
+        matchLabels = {
+          app = "mongodb"
+        }
+      }
+      template = {
+        metadata = {
+          labels = {
+            app = "mongodb"
+          }
+        }
+        spec = {
+          containers = [
+            {
+              name = "mongodb"
+              image = "mongo:7.0"
+              ports = [
+                {
+                  containerPort = 27017
+                  name = "mongodb"
+                }
+              ]
+              env = [
+                {
+                  name = "MONGO_INITDB_ROOT_USERNAME"
+                  valueFrom = {
+                    secretKeyRef = {
+                      name = "mongodb-secret"
+                      key = "username"
+                    }
+                  }
+                },
+                {
+                  name = "MONGO_INITDB_ROOT_PASSWORD"
+                  valueFrom = {
+                    secretKeyRef = {
+                      name = "mongodb-secret"
+                      key = "password"
+                    }
+                  }
+                }
+              ]
+              resources = var.services.mongodb.resources
+              volumeMounts = [
+                {
+                  name = "mongodb-data"
+                  mountPath = "/data/db"
+                }
+              ]
+            }
+          ]
+          volumes = [
+            {
+              name = "mongodb-data"
+              emptyDir = {}
+            }
+          ]
+        }
+      }
+    }
+  })
+
+  depends_on = [kubectl_manifest.mongodb_secret]
+}
+
+# MongoDB Service
+resource "kubectl_manifest" "mongodb_service" {
+  count = contains(keys(var.services), "mongodb") ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "v1"
+    kind = "Service"
+    metadata = {
+      name = "mongodb-headless"
+      namespace = "default"
+      labels = {
+        app = "mongodb"
+      }
+    }
+    spec = {
+      clusterIP = "None"
+      selector = {
+        app = "mongodb"
+      }
+      ports = [
+        {
+          port = 27017
+          targetPort = 27017
+          name = "mongodb"
+        }
+      ]
+    }
+  })
+}
+
+# MongoDB HPA
+resource "kubectl_manifest" "mongodb_hpa" {
+  count = contains(keys(var.services), "mongodb") ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "autoscaling/v2"
+    kind = "HorizontalPodAutoscaler"
+    metadata = {
+      name = "mongodb-hpa"
+      namespace = "default"
+    }
+    spec = {
+      scaleTargetRef = {
+        apiVersion = "apps/v1"
+        kind = "StatefulSet"
+        name = "mongodb"
+      }
+      minReplicas = var.services.mongodb.replicas
+      maxReplicas = var.services.mongodb.replicas * 2
+      metrics = [
+        {
+          type = "Resource"
+          resource = {
+            name = "cpu"
+            target = {
+              type = "Utilization"
+              averageUtilization = 70
+            }
+          }
+        }
+      ]
+    }
+  })
+}
+
+# PostgreSQL Secret
+resource "kubectl_manifest" "postgres_secret" {
   count = contains(keys(var.services), "postgres") ? 1 : 0
 
-  name       = "postgresql"
-  repository = "https://charts.bitnami.com/bitnami"
-  chart      = "postgresql"
-  version    = "12.12.10"
-  namespace  = "default"
-
-  values = [
-    yamlencode({
-      auth = {
-        postgresPassword = "postgres-root-password"
-        username = "keycloak"
-        password = "keycloak-password"
-        database = "keycloak"
+  yaml_body = yamlencode({
+    apiVersion = "v1"
+    kind = "Secret"
+    metadata = {
+      name = "postgres-secret"
+      namespace = "default"
+      labels = {
+        app = "postgres"
       }
-      
-      primary = {
-        persistence = {
-          enabled = true
-          storageClass = var.storage_class
-          size = try(var.services.postgres.storage.size, "10Gi")
-          accessModes = try(var.services.postgres.storage.access_modes, ["ReadWriteOnce"])
-        }
-        resources = var.services.postgres.resources
-      }
-      
-      service = {
-        type = "ClusterIP"
-        ports = {
-          postgresql = 5432
-        }
-      }
-    })
-  ]
+    }
+    type = "Opaque"
+    data = {
+      POSTGRES_DB = base64encode(var.services.postgres.credentials.database)
+      POSTGRES_USER = base64encode(var.services.postgres.credentials.username)
+      POSTGRES_PASSWORD = base64encode(var.services.postgres.credentials.password)
+    }
+  })
 }
 
-# Redis Helm Release
-resource "helm_release" "redis" {
+# PostgreSQL Deployment
+resource "kubectl_manifest" "postgres_deployment" {
+  count = contains(keys(var.services), "postgres") ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "apps/v1"
+    kind = "Deployment"
+    metadata = {
+      name = "postgres"
+      namespace = "default"
+      labels = {
+        app = "postgres"
+      }
+    }
+    spec = {
+      replicas = var.services.postgres.replicas
+      selector = {
+        matchLabels = {
+          app = "postgres"
+        }
+      }
+      template = {
+        metadata = {
+          labels = {
+            app = "postgres"
+          }
+        }
+        spec = {
+          containers = [
+            {
+              name = "postgres"
+              image = "postgres:15"
+              ports = [
+                {
+                  containerPort = 5432
+                  name = "postgres"
+                }
+              ]
+              envFrom = [
+                {
+                  secretRef = {
+                    name = "postgres-secret"
+                  }
+                }
+              ]
+              resources = var.services.postgres.resources
+              volumeMounts = [
+                {
+                  name = "postgres-data"
+                  mountPath = "/var/lib/postgresql/data"
+                }
+              ]
+            }
+          ]
+          volumes = [
+            {
+              name = "postgres-data"
+              emptyDir = {}
+            }
+          ]
+        }
+      }
+    }
+  })
+
+  depends_on = [kubectl_manifest.postgres_secret]
+}
+
+# PostgreSQL Service
+resource "kubectl_manifest" "postgres_service" {
+  count = contains(keys(var.services), "postgres") ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "v1"
+    kind = "Service"
+    metadata = {
+      name = "postgres"
+      namespace = "default"
+    }
+    spec = {
+      type = "NodePort"
+      selector = {
+        app = "postgres"
+      }
+      ports = [
+        {
+          port = 5432
+          targetPort = 5432
+          nodePort = 30100
+          protocol = "TCP"
+        }
+      ]
+    }
+  })
+}
+
+# PostgreSQL HPA
+resource "kubectl_manifest" "postgres_hpa" {
+  count = contains(keys(var.services), "postgres") ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "autoscaling/v2"
+    kind = "HorizontalPodAutoscaler"
+    metadata = {
+      name = "postgres-hpa"
+      namespace = "default"
+    }
+    spec = {
+      scaleTargetRef = {
+        apiVersion = "apps/v1"
+        kind = "Deployment"
+        name = "postgres"
+      }
+      minReplicas = var.services.postgres.replicas
+      maxReplicas = var.services.postgres.replicas * 2
+      metrics = [
+        {
+          type = "Resource"
+          resource = {
+            name = "cpu"
+            target = {
+              type = "Utilization"
+              averageUtilization = 70
+            }
+          }
+        }
+      ]
+    }
+  })
+}
+
+# Redis ConfigMap
+resource "kubectl_manifest" "redis_configmap" {
   count = contains(keys(var.services), "redis") ? 1 : 0
 
-  name       = "redis"
-  repository = "https://charts.bitnami.com/bitnami"
-  chart      = "redis"
-  version    = "18.1.5"
-  namespace  = "default"
-
-  values = [
-    yamlencode({
-      auth = {
-        enabled = true
-        password = "redis-password"
-      }
-      
-      master = {
-        persistence = {
-          enabled = true
-          storageClass = var.storage_class
-          size = try(var.services.redis.storage.size, "5Gi")
-          accessModes = try(var.services.redis.storage.access_modes, ["ReadWriteOnce"])
-        }
-        resources = var.services.redis.resources
-      }
-      
-      replica = {
-        replicaCount = var.services.redis.replicas - 1
-        persistence = {
-          enabled = true
-          storageClass = var.storage_class
-          size = try(var.services.redis.storage.size, "5Gi")
-          accessModes = try(var.services.redis.storage.access_modes, ["ReadWriteOnce"])
-        }
-        resources = var.services.redis.resources
-      }
-      
-      service = {
-        type = "LoadBalancer"
-        ports = {
-          redis = 6379
-        }
-      }
-    })
-  ]
+  yaml_body = yamlencode({
+    apiVersion = "v1"
+    kind = "ConfigMap"
+    metadata = {
+      name = "redis-config"
+      namespace = "default"
+    }
+    data = {
+      "redis.conf" = join("\n", [
+        for key, value in var.services.redis.env : "${key} ${value}"
+      ])
+    }
+  })
 }
 
-# Weaviate Helm Release
-resource "helm_release" "weaviate" {
+# Redis Deployment
+resource "kubectl_manifest" "redis_deployment" {
+  count = contains(keys(var.services), "redis") ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "apps/v1"
+    kind = "Deployment"
+    metadata = {
+      name = "redis"
+      namespace = "default"
+      labels = {
+        app = "redis"
+      }
+    }
+    spec = {
+      replicas = var.services.redis.replicas
+      selector = {
+        matchLabels = {
+          app = "redis"
+        }
+      }
+      template = {
+        metadata = {
+          labels = {
+            app = "redis"
+          }
+        }
+        spec = {
+          containers = [
+            {
+              name = "redis"
+              image = "redis:7.2-alpine"
+              ports = [
+                {
+                  containerPort = 6379
+                  name = "redis"
+                }
+              ]
+              command = ["redis-server", "/etc/redis/redis.conf"]
+              resources = var.services.redis.resources
+              volumeMounts = [
+                {
+                  name = "redis-config"
+                  mountPath = "/etc/redis"
+                },
+                {
+                  name = "redis-data"
+                  mountPath = "/data"
+                }
+              ]
+            }
+          ]
+          volumes = [
+            {
+              name = "redis-config"
+              configMap = {
+                name = "redis-config"
+              }
+            },
+            {
+              name = "redis-data"
+              emptyDir = {}
+            }
+          ]
+        }
+      }
+    }
+  })
+
+  depends_on = [kubectl_manifest.redis_configmap]
+}
+
+# Redis Service
+resource "kubectl_manifest" "redis_service" {
+  count = contains(keys(var.services), "redis") ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "v1"
+    kind = "Service"
+    metadata = {
+      name = "redis-service"
+      namespace = "default"
+    }
+    spec = {
+      type = "LoadBalancer"
+      selector = {
+        app = "redis"
+      }
+      ports = [
+        {
+          port = 6379
+          targetPort = 6379
+          protocol = "TCP"
+        }
+      ]
+    }
+  })
+}
+
+# Redis HPA
+resource "kubectl_manifest" "redis_hpa" {
+  count = contains(keys(var.services), "redis") ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "autoscaling/v2"
+    kind = "HorizontalPodAutoscaler"
+    metadata = {
+      name = "redis-hpa"
+      namespace = "default"
+    }
+    spec = {
+      scaleTargetRef = {
+        apiVersion = "apps/v1"
+        kind = "Deployment"
+        name = "redis"
+      }
+      minReplicas = var.services.redis.replicas
+      maxReplicas = var.services.redis.replicas * 3
+      metrics = [
+        {
+          type = "Resource"
+          resource = {
+            name = "cpu"
+            target = {
+              type = "Utilization"
+              averageUtilization = 70
+            }
+          }
+        }
+      ]
+    }
+  })
+}
+
+# Weaviate Deployment
+resource "kubectl_manifest" "weaviate_deployment" {
   count = contains(keys(var.services), "weaviate") ? 1 : 0
 
-  name       = "weaviate"
-  repository = "https://weaviate.github.io/weaviate-helm"
-  chart      = "weaviate"
-  version    = "16.8.5"
-  namespace  = "default"
-
-  values = [
-    yamlencode({
+  yaml_body = yamlencode({
+    apiVersion = "apps/v1"
+    kind = "Deployment"
+    metadata = {
+      name = "weaviate"
+      namespace = "default"
+      labels = {
+        app = "weaviate"
+      }
+    }
+    spec = {
       replicas = var.services.weaviate.replicas
-      
-      persistence = {
-        enabled = true
-        storageClass = var.storage_class
-        size = try(var.services.weaviate.storage.size, "32Gi")
-        accessModes = try(var.services.weaviate.storage.access_modes, ["ReadWriteOnce"])
-      }
-      
-      resources = var.services.weaviate.resources
-      
-      service = {
-        type = "LoadBalancer"
-        ports = {
-          http = 80
-          grpc = 50051
+      selector = {
+        matchLabels = {
+          app = "weaviate"
         }
       }
-      
-      modules = {
-        "text2vec-openai" = {
-          enabled = true
+      template = {
+        metadata = {
+          labels = {
+            app = "weaviate"
+          }
         }
-        "generative-openai" = {
-          enabled = true
+        spec = {
+          containers = [
+            {
+              name = "weaviate"
+              image = "semitechnologies/weaviate:1.22.4"
+              ports = [
+                {
+                  containerPort = 8080
+                  name = "http"
+                },
+                {
+                  containerPort = 50051
+                  name = "grpc"
+                }
+              ]
+              env = [
+                for key, value in var.services.weaviate.env : {
+                  name = key
+                  value = tostring(value)
+                }
+              ]
+              resources = var.services.weaviate.resources
+              volumeMounts = [
+                {
+                  name = "weaviate-data"
+                  mountPath = "/var/lib/weaviate"
+                }
+              ]
+            }
+          ]
+          volumes = [
+            {
+              name = "weaviate-data"
+              emptyDir = {}
+            }
+          ]
         }
       }
-    })
-  ]
+    }
+  })
+}
+
+# Weaviate Service
+resource "kubectl_manifest" "weaviate_service" {
+  count = contains(keys(var.services), "weaviate") ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "v1"
+    kind = "Service"
+    metadata = {
+      name = "weaviate"
+      namespace = "default"
+    }
+    spec = {
+      type = "LoadBalancer"
+      selector = {
+        app = "weaviate"
+      }
+      ports = [
+        {
+          port = 80
+          targetPort = 8080
+          protocol = "TCP"
+          name = "http"
+        },
+        {
+          port = 50051
+          targetPort = 50051
+          protocol = "TCP"
+          name = "grpc"
+        }
+      ]
+    }
+  })
 }
 
 # Keycloak Deployment
@@ -209,14 +607,24 @@ resource "kubectl_manifest" "keycloak_deployment" {
               name = "keycloak"
               image = "quay.io/keycloak/keycloak:22.0"
               args = ["start-dev"]
-              env = [
+              ports = [
+                {
+                  containerPort = 8080
+                  name = "http"
+                },
+                {
+                  containerPort = 9000
+                  name = "management"
+                }
+              ]
+              env = concat([
                 {
                   name = "KEYCLOAK_ADMIN"
-                  value = "admin"
+                  value = var.services.keycloak.credentials.username
                 },
                 {
                   name = "KEYCLOAK_ADMIN_PASSWORD"
-                  value = "admin"
+                  value = var.services.keycloak.credentials.password
                 },
                 {
                   name = "KC_DB"
@@ -224,23 +632,22 @@ resource "kubectl_manifest" "keycloak_deployment" {
                 },
                 {
                   name = "KC_DB_URL"
-                  value = "jdbc:postgresql://postgresql:5432/keycloak"
+                  value = "jdbc:postgresql://postgres:5432/${var.services.postgres.credentials.database}"
                 },
                 {
                   name = "KC_DB_USERNAME"
-                  value = "keycloak"
+                  value = var.services.postgres.credentials.username
                 },
                 {
                   name = "KC_DB_PASSWORD"
-                  value = "keycloak-password"
+                  value = var.services.postgres.credentials.password
                 }
-              ]
-              ports = [
-                {
-                  containerPort = 8080
-                  name = "http"
+              ], [
+                for key, value in var.services.keycloak.env : {
+                  name = key
+                  value = tostring(value)
                 }
-              ]
+              ])
               resources = var.services.keycloak.resources
             }
           ]
@@ -249,9 +656,10 @@ resource "kubectl_manifest" "keycloak_deployment" {
     }
   })
 
-  depends_on = [helm_release.postgresql]
+  depends_on = [kubectl_manifest.postgres_deployment]
 }
 
+# Keycloak Service
 resource "kubectl_manifest" "keycloak_service" {
   count = contains(keys(var.services), "keycloak") ? 1 : 0
 
@@ -271,6 +679,11 @@ resource "kubectl_manifest" "keycloak_service" {
           port = 8080
           targetPort = 8080
           name = "http"
+        },
+        {
+          port = 9000
+          targetPort = 9000
+          name = "management"
         }
       ]
       type = "ClusterIP"
@@ -278,7 +691,64 @@ resource "kubectl_manifest" "keycloak_service" {
   })
 }
 
-# Backend Application Deployment
+# Keycloak HPA
+resource "kubectl_manifest" "keycloak_hpa" {
+  count = contains(keys(var.services), "keycloak") ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "autoscaling/v2"
+    kind = "HorizontalPodAutoscaler"
+    metadata = {
+      name = "keycloak-hpa"
+      namespace = "default"
+    }
+    spec = {
+      scaleTargetRef = {
+        apiVersion = "apps/v1"
+        kind = "Deployment"
+        name = "keycloak"
+      }
+      minReplicas = var.services.keycloak.replicas
+      maxReplicas = var.services.keycloak.replicas * 2
+      metrics = [
+        {
+          type = "Resource"
+          resource = {
+            name = "cpu"
+            target = {
+              type = "Utilization"
+              averageUtilization = 70
+            }
+          }
+        }
+      ]
+    }
+  })
+}
+
+# Backend ConfigMap
+resource "kubectl_manifest" "backend_configmap" {
+  count = contains(keys(var.services), "backend") ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "v1"
+    kind = "ConfigMap"
+    metadata = {
+      name = "backend-app-config"
+      namespace = "default"
+    }
+    data = merge(var.services.backend.env, {
+      MONGO_URI = "mongodb://${var.services.mongodb.credentials.username}:${var.services.mongodb.credentials.password}@mongodb-0.mongodb-headless.default.svc.cluster.local:27017,mongodb-1.mongodb-headless.default.svc.cluster.local:27017/?replicaSet=rs0"
+      REDIS_URL = "redis://redis-service.default.svc.cluster.local:6379"
+      WEAVIATE_URI = "http://weaviate.default.svc.cluster.local"
+      KEYCLOAK_BASE_URL = "http://keycloak:8080/beta"
+      FRONTEND_URL = var.domains.frontend
+      BACKEND_URL = var.domains.backend
+    })
+  })
+}
+
+# Backend Deployment
 resource "kubectl_manifest" "backend_deployment" {
   count = contains(keys(var.services), "backend") ? 1 : 0
 
@@ -308,30 +778,39 @@ resource "kubectl_manifest" "backend_deployment" {
         spec = {
           containers = [
             {
-              name = "backend"
-              image = "your-registry/backend:latest"
+              name = "backend-app"
+              image = "590184047163.dkr.ecr.ap-south-1.amazonaws.com/101genai/kubernetes:latest"
               ports = [
                 {
                   containerPort = 8000
                   name = "http"
                 }
               ]
+              envFrom = [
+                {
+                  configMapRef = {
+                    name = "backend-app-config"
+                  }
+                }
+              ]
               env = [
                 {
-                  name = "MONGODB_URL"
-                  value = "mongodb://appuser:mongodb-app-password@mongodb:27017/101genai"
+                  name = "MONGODB_USERNAME"
+                  valueFrom = {
+                    secretKeyRef = {
+                      name = "mongodb-secret"
+                      key = "username"
+                    }
+                  }
                 },
                 {
-                  name = "REDIS_URL"
-                  value = "redis://:redis-password@redis-master:6379"
-                },
-                {
-                  name = "WEAVIATE_URL"
-                  value = "http://weaviate:80"
-                },
-                {
-                  name = "KEYCLOAK_URL"
-                  value = "http://keycloak:8080"
+                  name = "MONGODB_PASSWORD"
+                  valueFrom = {
+                    secretKeyRef = {
+                      name = "mongodb-secret"
+                      key = "password"
+                    }
+                  }
                 }
               ]
               resources = var.services.backend.resources
@@ -341,8 +820,11 @@ resource "kubectl_manifest" "backend_deployment" {
       }
     }
   })
+
+  depends_on = [kubectl_manifest.backend_configmap, kubectl_manifest.mongodb_secret]
 }
 
+# Backend Service
 resource "kubectl_manifest" "backend_service" {
   count = contains(keys(var.services), "backend") ? 1 : 0
 
@@ -352,6 +834,13 @@ resource "kubectl_manifest" "backend_service" {
     metadata = {
       name = "backend-app"
       namespace = "default"
+      annotations = {
+        "service.beta.kubernetes.io/aws-load-balancer-type" = "nlb"
+        "service.beta.kubernetes.io/aws-load-balancer-scheme" = "internet-facing"
+        "service.beta.kubernetes.io/aws-load-balancer-healthcheck-path" = "/docs"
+        "service.beta.kubernetes.io/aws-load-balancer-healthcheck-port" = "8000"
+        "service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol" = "HTTP"
+      }
     }
     spec = {
       selector = {
@@ -359,9 +848,9 @@ resource "kubectl_manifest" "backend_service" {
       }
       ports = [
         {
+          protocol = "TCP"
           port = 8000
           targetPort = 8000
-          name = "http"
         }
       ]
       type = "LoadBalancer"
@@ -369,7 +858,61 @@ resource "kubectl_manifest" "backend_service" {
   })
 }
 
-# Frontend Application Deployment
+# Backend HPA
+resource "kubectl_manifest" "backend_hpa" {
+  count = contains(keys(var.services), "backend") ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "autoscaling/v2"
+    kind = "HorizontalPodAutoscaler"
+    metadata = {
+      name = "backend-app-hpa"
+      namespace = "default"
+    }
+    spec = {
+      scaleTargetRef = {
+        apiVersion = "apps/v1"
+        kind = "Deployment"
+        name = "backend-app"
+      }
+      minReplicas = var.services.backend.replicas
+      maxReplicas = var.services.backend.replicas * 3
+      metrics = [
+        {
+          type = "Resource"
+          resource = {
+            name = "cpu"
+            target = {
+              type = "Utilization"
+              averageUtilization = 70
+            }
+          }
+        }
+      ]
+    }
+  })
+}
+
+# Frontend ConfigMap
+resource "kubectl_manifest" "frontend_configmap" {
+  count = contains(keys(var.services), "frontend") ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "v1"
+    kind = "ConfigMap"
+    metadata = {
+      name = "frontend-app-config"
+      namespace = "default"
+    }
+    data = merge(var.services.frontend.env, {
+      VITE_API_URL = var.domains.backend
+      VITE_KEYCLOAK_URL = var.domains.keycloak
+      FRONTEND_URL = var.domains.frontend
+    })
+  })
+}
+
+# Frontend Deployment
 resource "kubectl_manifest" "frontend_deployment" {
   count = contains(keys(var.services), "frontend") ? 1 : 0
 
@@ -399,22 +942,19 @@ resource "kubectl_manifest" "frontend_deployment" {
         spec = {
           containers = [
             {
-              name = "frontend"
-              image = "your-registry/frontend:latest"
+              name = "frontend-app"
+              image = "590184047163.dkr.ecr.ap-south-1.amazonaws.com/101genai/frontend:latest"
               ports = [
                 {
                   containerPort = 5173
                   name = "http"
                 }
               ]
-              env = [
+              envFrom = [
                 {
-                  name = "VITE_API_URL"
-                  value = "http://backend-app:8000"
-                },
-                {
-                  name = "VITE_KEYCLOAK_URL"
-                  value = "http://keycloak:8080"
+                  configMapRef = {
+                    name = "frontend-app-config"
+                  }
                 }
               ]
               resources = var.services.frontend.resources
@@ -424,8 +964,11 @@ resource "kubectl_manifest" "frontend_deployment" {
       }
     }
   })
+
+  depends_on = [kubectl_manifest.frontend_configmap]
 }
 
+# Frontend Service
 resource "kubectl_manifest" "frontend_service" {
   count = contains(keys(var.services), "frontend") ? 1 : 0
 
@@ -435,6 +978,10 @@ resource "kubectl_manifest" "frontend_service" {
     metadata = {
       name = "frontend-app"
       namespace = "default"
+      annotations = {
+        "service.beta.kubernetes.io/aws-load-balancer-type" = "nlb"
+        "service.beta.kubernetes.io/aws-load-balancer-scheme" = "internet-facing"
+      }
     }
     spec = {
       selector = {
@@ -442,9 +989,9 @@ resource "kubectl_manifest" "frontend_service" {
       }
       ports = [
         {
+          protocol = "TCP"
           port = 5173
           targetPort = 5173
-          name = "http"
         }
       ]
       type = "LoadBalancer"
@@ -452,7 +999,42 @@ resource "kubectl_manifest" "frontend_service" {
   })
 }
 
-# Celery Worker Deployment
+# Frontend HPA
+resource "kubectl_manifest" "frontend_hpa" {
+  count = contains(keys(var.services), "frontend") ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "autoscaling/v2"
+    kind = "HorizontalPodAutoscaler"
+    metadata = {
+      name = "frontend-app-hpa"
+      namespace = "default"
+    }
+    spec = {
+      scaleTargetRef = {
+        apiVersion = "apps/v1"
+        kind = "Deployment"
+        name = "frontend-app"
+      }
+      minReplicas = var.services.frontend.replicas
+      maxReplicas = var.services.frontend.replicas * 3
+      metrics = [
+        {
+          type = "Resource"
+          resource = {
+            name = "cpu"
+            target = {
+              type = "Utilization"
+              averageUtilization = 70
+            }
+          }
+        }
+      ]
+    }
+  })
+}
+
+# Celery Deployment
 resource "kubectl_manifest" "celery_deployment" {
   count = contains(keys(var.services), "celery") ? 1 : 0
 
@@ -484,25 +1066,92 @@ resource "kubectl_manifest" "celery_deployment" {
             {
               name = "celery-worker"
               image = "maniniabhi/celery-worker:latest"
-              env = [
+              env = concat([
                 {
                   name = "CELERY_BROKER_URL"
-                  value = "redis://:redis-password@redis-master:6379/0"
+                  value = "redis://redis-service.default.svc.cluster.local:6379/0"
                 },
                 {
                   name = "CELERY_RESULT_BACKEND"
-                  value = "redis://:redis-password@redis-master:6379/0"
+                  value = "redis://redis-service.default.svc.cluster.local:6379/0"
                 },
                 {
                   name = "MONGODB_URL"
-                  value = "mongodb://appuser:mongodb-app-password@mongodb:27017/101genai"
+                  value = "mongodb://${var.services.mongodb.credentials.username}:${var.services.mongodb.credentials.password}@mongodb-0.mongodb-headless.default.svc.cluster.local:27017/?replicaSet=rs0"
                 }
-              ]
+              ], [
+                for key, value in var.services.celery.env : {
+                  name = key
+                  value = tostring(value)
+                }
+              ])
               resources = var.services.celery.resources
             }
           ]
         }
       }
+    }
+  })
+}
+
+# Celery Service
+resource "kubectl_manifest" "celery_service" {
+  count = contains(keys(var.services), "celery") ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "v1"
+    kind = "Service"
+    metadata = {
+      name = "celery-worker"
+      namespace = "default"
+    }
+    spec = {
+      selector = {
+        app = "celery-worker"
+      }
+      ports = [
+        {
+          port = 80
+          targetPort = 8000
+          protocol = "TCP"
+        }
+      ]
+      type = "ClusterIP"
+    }
+  })
+}
+
+# Celery HPA
+resource "kubectl_manifest" "celery_hpa" {
+  count = contains(keys(var.services), "celery") ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "autoscaling/v2"
+    kind = "HorizontalPodAutoscaler"
+    metadata = {
+      name = "celery-worker-hpa"
+      namespace = "default"
+    }
+    spec = {
+      scaleTargetRef = {
+        apiVersion = "apps/v1"
+        kind = "Deployment"
+        name = "celery-worker"
+      }
+      minReplicas = var.services.celery.replicas
+      maxReplicas = var.services.celery.replicas * 4
+      metrics = [
+        {
+          type = "Resource"
+          resource = {
+            name = "cpu"
+            target = {
+              type = "Utilization"
+              averageUtilization = 70
+            }
+          }
+        }
+      ]
     }
   })
 }
@@ -544,7 +1193,7 @@ resource "helm_release" "nginx_ingress" {
   ]
 }
 
-# Ingress for services
+# Main Ingress
 resource "kubectl_manifest" "main_ingress" {
   yaml_body = yamlencode({
     apiVersion = "networking.k8s.io/v1"
@@ -560,10 +1209,11 @@ resource "kubectl_manifest" "main_ingress" {
     spec = {
       rules = [
         {
+          host = replace(var.domains.backend, "https://", "")
           http = {
             paths = [
               {
-                path = "/api/(.*)"
+                path = "/(.*)"
                 pathType = "Prefix"
                 backend = {
                   service = {
@@ -573,7 +1223,14 @@ resource "kubectl_manifest" "main_ingress" {
                     }
                   }
                 }
-              },
+              }
+            ]
+          }
+        },
+        {
+          host = replace(var.domains.frontend, "https://", "")
+          http = {
+            paths = [
               {
                 path = "/(.*)"
                 pathType = "Prefix"
@@ -582,6 +1239,44 @@ resource "kubectl_manifest" "main_ingress" {
                     name = "frontend-app"
                     port = {
                       number = 5173
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          host = replace(var.domains.keycloak, "https://", "")
+          http = {
+            paths = [
+              {
+                path = "/(.*)"
+                pathType = "Prefix"
+                backend = {
+                  service = {
+                    name = "keycloak"
+                    port = {
+                      number = 8080
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          host = replace(var.domains.weaviate, "https://", "")
+          http = {
+            paths = [
+              {
+                path = "/(.*)"
+                pathType = "Prefix"
+                backend = {
+                  service = {
+                    name = "weaviate"
+                    port = {
+                      number = 80
                     }
                   }
                 }
