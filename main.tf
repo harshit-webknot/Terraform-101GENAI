@@ -67,6 +67,12 @@ provider "google" {
 module "aws_infrastructure" {
   count  = local.cloud_provider == "aws" ? 1 : 0
   source = "./modules/aws"
+
+  providers = {
+    aws     = aws
+    kubectl = gavinbunney/kubectl
+    tls     = tls
+  }
   
   cluster_name  = local.cluster_name
   region        = local.region
@@ -80,6 +86,11 @@ module "aws_infrastructure" {
 module "gcp_infrastructure" {
   count  = local.cloud_provider == "gcp" ? 1 : 0
   source = "./modules/gcp"
+
+  providers = {
+    google  = google
+    kubectl = gavinbunney/kubectl
+  }
   
   cluster_name  = local.cluster_name
   region        = local.region
@@ -120,6 +131,11 @@ module "workloads" {
   domains       = local.domains
   cluster_name  = local.cluster_name
   cloud_provider = local.cloud_provider   # ✅ fixed
+
+  providers = {
+    kubectl = gavinbunney/kubectl
+    helm    = helm
+  }
   
   # Storage configuration
   storage_class = local.cloud_provider == "aws" ? "efs-sc" : "filestore-sc"
