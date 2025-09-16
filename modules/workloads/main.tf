@@ -10,7 +10,7 @@ resource "kubectl_manifest" "mongodb_secret" {
       namespace = "default"
       annotations = {
         "external-secrets.io/secret-name" = var.secret_manager.secrets.mongodb_secret
-        "external-secrets.io/provider" = var.secret_manager.provider
+        "external-secrets.io/cloud_provider" = var.secret_manager.cloud_provider
       }
     }
     type = "Opaque"
@@ -183,7 +183,7 @@ resource "kubectl_manifest" "postgres_secret" {
       }
       annotations = {
         "external-secrets.io/secret-name" = var.secret_manager.secrets.postgres_secret
-        "external-secrets.io/provider" = var.secret_manager.provider
+        "external-secrets.io/cloud_provider" = var.secret_manager.cloud_provider
       }
     }
     type = "Opaque"
@@ -1255,7 +1255,7 @@ resource "helm_release" "nginx_ingress" {
       controller = {
         service = {
           type = "LoadBalancer"
-          annotations = var.provider == "aws" ? {
+          annotations = var.cloud_provider == "aws" ? {
             "service.beta.kubernetes.io/aws-load-balancer-type" = "nlb"
             "service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled" = "true"
           } : {
